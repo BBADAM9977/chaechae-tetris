@@ -20,6 +20,7 @@ const EMPTY = 0;
 const BASE_DROP_INTERVAL = 850;
 const LINE_CLEAR_EFFECT_DURATION = 580;
 const LINE_CLEAR_FLASH_DURATION = 170;
+const HARD_DROP_IMPACT_DURATION = 120;
 const PARTICLES_PER_CELL = 12;
 const MAX_PARTICLES = 250;
 
@@ -80,6 +81,7 @@ let lineClearMultiplier;
 let particles;
 let cellSize;
 let nextCellSize;
+let hardDropImpactStartedAt;
 let animationFrameId;
 
 function createBoard() {
@@ -236,6 +238,7 @@ function draw() {
 
   context.save();
   applyLineClearBounce();
+  applyHardDropImpact();
   drawGrid();
   drawMatrix(context, board, { x: 0, y: 0 }, cellSize);
   drawLineClearGlow();
@@ -544,8 +547,39 @@ function drop() {
   dropCounter = 0;
 }
 
+function hardDropPiece() {
+  if (!canControlPiece()) {
+    return;
+  }
+
+  while (!collide(board, { ...piece, y: piece.y + 1 })) {
+    piece.y += 1;
+  }
+
+  hardDropImpactStartedAt = now();
+  lockPiece();
+  dropCounter = 0;
+}
+
 function canControlPiece() {
   return started && !gameOver && !paused && !isClearingLines;
+}
+
+function applyHardDropImpact() {
+  if (!hardDropImpactStartedAt || isClearingLines) {
+    return;
+  }
+
+  const elapsed = now() - hardDropImpactStartedAt;
+
+  if (elapsed > HARD_DROP_IMPACT_DURATION) {
+    hardDropImpactStartedAt = 0;
+    return;
+  }
+
+  const progress = elapsed / HARD_DROP_IMPACT_DURATION;
+  const offset = Math.sin(progress * Math.PI) * 3 * (1 - progress);
+  context.translate(0, offset);
 }
 
 function getViewportHeight() {
@@ -625,6 +659,8 @@ function runPlayerAction(action) {
     move(1);
   } else if (action === "drop") {
     drop();
+  } else if (action === "hardDrop") {
+    hardDropPiece();
   } else if (action === "rotate") {
     rotatePiece();
   }
@@ -671,6 +707,7 @@ function startGame() {
   lineClearStartedAt = 0;
   lineClearMultiplier = 1;
   particles = [];
+  hardDropImpactStartedAt = 0;
   resizeGameForViewport();
   updateStats();
   updateState("");
@@ -712,7 +749,8 @@ document.addEventListener("keydown", (event) => {
   } else if (event.key === "ArrowRight") {
     runPlayerAction("right");
   } else if (event.key === "ArrowDown") {
-    runPlayerAction("drop");
+    drop();
+    draw();
   } else if (event.key === "ArrowUp" || event.code === "Space") {
     runPlayerAction("rotate");
   } else {
