@@ -11,7 +11,7 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="icon.svg" />
-    <link rel="stylesheet" href="style.css?v=6" />
+    <link rel="stylesheet" href="style.css?v=7" />
   </head>
   <body>
     <main class="game-shell">
@@ -55,18 +55,18 @@
 
           <div class="touch-pad" aria-label="터치 조작">
             <button class="touch-button" data-action="left" type="button" aria-label="왼쪽으로 이동">←</button>
-            <button class="touch-button" data-action="drop" type="button" aria-label="빨리 내리기">↓</button>
+            <button class="touch-button" data-action="hardDrop" type="button" aria-label="바닥까지 내리기">↓</button>
             <button class="touch-button" data-action="right" type="button" aria-label="오른쪽으로 이동">→</button>
             <button class="touch-button rotate wide" data-action="rotate" type="button" aria-label="블록 돌리기">↻</button>
           </div>
         </aside>
       </section>
     </main>
-    <script src="script.js?v=6"></script>
+    <script src="script.js?v=7"></script>
     <script>
       if ("serviceWorker" in navigator) {
         window.addEventListener("load", () => {
-          navigator.serviceWorker.register("sw.js?v=6").catch(() => {});
+          navigator.serviceWorker.register("sw.js?v=7").catch(() => {});
         });
       }
     </script>
