@@ -16,8 +16,10 @@ const CELL = 36;
 const NEXT_CELL = 26;
 const EMPTY = 0;
 const BASE_DROP_INTERVAL = 850;
-const LINE_CLEAR_EFFECT_DURATION = 360;
-const PARTICLES_PER_CELL = 5;
+const LINE_CLEAR_EFFECT_DURATION = 580;
+const LINE_CLEAR_FLASH_DURATION = 170;
+const PARTICLES_PER_CELL = 12;
+const MAX_PARTICLES = 250;
 
 const COLORS = [
   null,
@@ -72,6 +74,7 @@ let paused;
 let isClearingLines;
 let clearingLines;
 let lineClearStartedAt;
+let lineClearMultiplier;
 let particles;
 let animationFrameId;
 
@@ -156,16 +159,46 @@ function drawParticles() {
     context.rotate(particle.rotation);
     context.fillStyle = particle.color;
     context.beginPath();
-    context.roundRect(
-      -particle.size / 2,
-      -particle.size / 2,
-      particle.size,
-      particle.size,
-      particle.size * 0.35
-    );
-    context.fill();
+
+    if (particle.type === "circle") {
+      context.arc(0, 0, particle.size / 2, 0, Math.PI * 2);
+      context.fill();
+    } else if (particle.type === "star") {
+      drawStar(context, particle.size);
+    } else {
+      context.roundRect(
+        -particle.size / 2,
+        -particle.size / 2,
+        particle.size,
+        particle.size,
+        particle.size * 0.35
+      );
+      context.fill();
+    }
+
     context.restore();
   });
+}
+
+function drawStar(targetContext, size) {
+  const outerRadius = size / 2;
+  const innerRadius = outerRadius * 0.48;
+
+  for (let i = 0; i < 10; i += 1) {
+    const radius = i % 2 === 0 ? outerRadius : innerRadius;
+    const angle = -Math.PI / 2 + (Math.PI * 2 * i) / 10;
+    const x = Math.cos(angle) * radius;
+    const y = Math.sin(angle) * radius;
+
+    if (i === 0) {
+      targetContext.moveTo(x, y);
+    } else {
+      targetContext.lineTo(x, y);
+    }
+  }
+
+  targetContext.closePath();
+  targetContext.fill();
 }
 
 function drawNextPiece() {
@@ -196,12 +229,17 @@ function drawOverlay(title, subtitle) {
 function draw() {
   context.fillStyle = "#fffaf0";
   context.fillRect(0, 0, canvas.width, canvas.height);
+
+  context.save();
+  applyLineClearBounce();
   drawGrid();
   drawMatrix(context, board, { x: 0, y: 0 }, CELL);
+  drawLineClearGlow();
   if (!isClearingLines) {
     drawMatrix(context, piece.matrix, piece, CELL);
   }
   drawParticles();
+  context.restore();
   drawNextPiece();
 
   if (gameOver) {
@@ -258,6 +296,14 @@ function now() {
   return typeof performance !== "undefined" ? performance.now() : Date.now();
 }
 
+function getLineClearProgress() {
+  if (!isClearingLines) {
+    return 0;
+  }
+
+  return Math.min(1, (now() - lineClearStartedAt) / LINE_CLEAR_EFFECT_DURATION);
+}
+
 function findCompletedLines() {
   const completed = [];
 
@@ -276,17 +322,24 @@ function findCompletedLines() {
 
 function createLineClearParticles(completedLines) {
   particles = [];
+  const particleCount = Math.min(
+    MAX_PARTICLES,
+    completedLines.length * COLS * Math.round(PARTICLES_PER_CELL * lineClearMultiplier)
+  );
+  let created = 0;
 
-  // Full rows briefly burst into soft pastel pieces before the board is changed.
+  // Full rows burst into bigger pastel pieces, circles, and stars before the board is changed.
   completedLines.forEach((y) => {
     for (let x = 0; x < COLS; x += 1) {
       const color = COLORS[board[y][x]];
       const centerX = x * CELL + CELL / 2;
       const centerY = y * CELL + CELL / 2;
+      const perCell = Math.round(PARTICLES_PER_CELL * lineClearMultiplier);
 
-      for (let i = 0; i < PARTICLES_PER_CELL; i += 1) {
-        const angle = Math.random() * Math.PI * 2;
-        const speed = 0.8 + Math.random() * 1.8;
+      for (let i = 0; i < perCell && created < particleCount; i += 1) {
+        const angle = -Math.PI + Math.random() * Math.PI;
+        const speed = (1.8 + Math.random() * 3.4) * lineClearMultiplier;
+        const sparkle = Math.random() > 0.64;
 
         particles.push({
           x: centerX,
@@ -294,13 +347,15 @@ function createLineClearParticles(completedLines) {
           startX: centerX,
           startY: centerY,
           vx: Math.cos(angle) * speed,
-          vy: Math.sin(angle) * speed - 0.7,
-          size: 3 + Math.random() * 4,
+          vy: Math.sin(angle) * speed - 2.2 * lineClearMultiplier,
+          size: sparkle ? 8 + Math.random() * 5 : 6 + Math.random() * 6,
           rotation: Math.random() * Math.PI,
-          spin: (Math.random() - 0.5) * 0.18,
-          color,
+          spin: (Math.random() - 0.5) * 0.32,
+          color: sparkle ? randomSparkleColor() : color,
           alpha: 1,
+          type: randomParticleType(sparkle),
         });
+        created += 1;
       }
     }
   });
@@ -309,8 +364,76 @@ function createLineClearParticles(completedLines) {
 function startLineClearEffect(completedLines) {
   isClearingLines = true;
   clearingLines = completedLines;
+  lineClearMultiplier = completedLines.length >= 4 ? 1.6 : completedLines.length >= 2 ? 1.3 : 1;
   lineClearStartedAt = now();
   createLineClearParticles(completedLines);
+}
+
+function randomParticleType(sparkle) {
+  if (sparkle) {
+    return Math.random() > 0.35 ? "star" : "circle";
+  }
+
+  const types = ["square", "circle", "star"];
+  return types[Math.floor(Math.random() * types.length)];
+}
+
+function randomSparkleColor() {
+  const colors = ["#ffffff", "#fff4bf", "#ffd9e8", "#cbeeff", "#e8dcff"];
+  return colors[Math.floor(Math.random() * colors.length)];
+}
+
+function drawLineClearGlow() {
+  if (!isClearingLines) {
+    return;
+  }
+
+  const elapsed = now() - lineClearStartedAt;
+  const progress = getLineClearProgress();
+  const flashAlpha =
+    elapsed < LINE_CLEAR_FLASH_DURATION
+      ? 0.6 + Math.sin((elapsed / LINE_CLEAR_FLASH_DURATION) * Math.PI) * 0.28
+      : Math.max(0, 0.38 * (1 - progress));
+  const popScale = elapsed < LINE_CLEAR_FLASH_DURATION ? 1 + Math.sin((elapsed / LINE_CLEAR_FLASH_DURATION) * Math.PI) * 0.1 : 1;
+
+  clearingLines.forEach((y) => {
+    context.save();
+    context.globalAlpha = flashAlpha;
+    context.fillStyle = "#fff8c9";
+    context.shadowColor = "rgba(255, 214, 111, 0.72)";
+    context.shadowBlur = 22 * lineClearMultiplier;
+    context.fillRect(0, y * CELL, COLS * CELL, CELL);
+    context.restore();
+
+    context.save();
+    context.globalAlpha = Math.max(0, 0.42 * (1 - progress));
+    context.translate((COLS * CELL) / 2, y * CELL + CELL / 2);
+    context.scale(popScale, popScale);
+    context.translate(-(COLS * CELL) / 2, -(y * CELL + CELL / 2));
+    for (let x = 0; x < COLS; x += 1) {
+      if (board[y][x] !== EMPTY) {
+        drawCell(context, x, y, board[y][x], CELL);
+      }
+    }
+    context.restore();
+  });
+}
+
+function applyLineClearBounce() {
+  if (!isClearingLines || clearingLines.length < 2) {
+    return;
+  }
+
+  const elapsed = now() - lineClearStartedAt;
+  const duration = clearingLines.length >= 4 ? 160 : 110;
+
+  if (elapsed > duration) {
+    return;
+  }
+
+  const strength = clearingLines.length >= 4 ? 4.5 : 2.5;
+  const offset = Math.sin((elapsed / duration) * Math.PI * 2) * strength * (1 - elapsed / duration);
+  context.translate(0, offset);
 }
 
 function updateLineClearEffect(currentTime) {
@@ -321,10 +444,10 @@ function updateLineClearEffect(currentTime) {
   const progress = Math.min(1, (currentTime - lineClearStartedAt) / LINE_CLEAR_EFFECT_DURATION);
 
   particles.forEach((particle) => {
-    particle.x = particle.startX + particle.vx * progress * 28;
-    particle.y = particle.startY + particle.vy * progress * 28 + progress * progress * 14;
+    particle.x = particle.startX + particle.vx * progress * 42;
+    particle.y = particle.startY + particle.vy * progress * 42 + progress * progress * 22;
     particle.rotation += particle.spin;
-    particle.alpha = 1 - progress;
+    particle.alpha = Math.max(0, 1 - progress * 1.12);
   });
 
   if (progress >= 1) {
@@ -341,8 +464,11 @@ function finishLineClearEffect() {
     .sort((a, b) => b - a)
     .forEach((y) => {
       board.splice(y, 1);
-      board.unshift(Array(COLS).fill(EMPTY));
     });
+
+  for (let i = 0; i < linesCleared; i += 1) {
+    board.unshift(Array(COLS).fill(EMPTY));
+  }
 
   if (linesCleared > 0) {
     const lineScores = [0, 100, 300, 500, 800];
@@ -469,6 +595,7 @@ function startGame() {
   isClearingLines = false;
   clearingLines = [];
   lineClearStartedAt = 0;
+  lineClearMultiplier = 1;
   particles = [];
   updateStats();
   updateState("");
