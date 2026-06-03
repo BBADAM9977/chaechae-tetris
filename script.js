@@ -16,6 +16,8 @@ const CELL = 36;
 const NEXT_CELL = 26;
 const EMPTY = 0;
 const BASE_DROP_INTERVAL = 850;
+const LINE_CLEAR_EFFECT_DURATION = 360;
+const PARTICLES_PER_CELL = 5;
 
 const COLORS = [
   null,
@@ -67,6 +69,10 @@ let lastTime;
 let started;
 let gameOver;
 let paused;
+let isClearingLines;
+let clearingLines;
+let lineClearStartedAt;
+let particles;
 let animationFrameId;
 
 function createBoard() {
@@ -142,6 +148,26 @@ function drawMatrix(targetContext, matrix, offset, size) {
   });
 }
 
+function drawParticles() {
+  particles.forEach((particle) => {
+    context.save();
+    context.globalAlpha = particle.alpha;
+    context.translate(particle.x, particle.y);
+    context.rotate(particle.rotation);
+    context.fillStyle = particle.color;
+    context.beginPath();
+    context.roundRect(
+      -particle.size / 2,
+      -particle.size / 2,
+      particle.size,
+      particle.size,
+      particle.size * 0.35
+    );
+    context.fill();
+    context.restore();
+  });
+}
+
 function drawNextPiece() {
   nextContext.fillStyle = "#fffaf0";
   nextContext.fillRect(0, 0, nextCanvas.width, nextCanvas.height);
@@ -172,7 +198,10 @@ function draw() {
   context.fillRect(0, 0, canvas.width, canvas.height);
   drawGrid();
   drawMatrix(context, board, { x: 0, y: 0 }, CELL);
-  drawMatrix(context, piece.matrix, piece, CELL);
+  if (!isClearingLines) {
+    drawMatrix(context, piece.matrix, piece, CELL);
+  }
+  drawParticles();
   drawNextPiece();
 
   if (gameOver) {
@@ -225,8 +254,12 @@ function updateState(text) {
   pauseButton.textContent = paused ? "계속하기" : "잠깐 멈춤";
 }
 
-function clearLines() {
-  let linesCleared = 0;
+function now() {
+  return typeof performance !== "undefined" ? performance.now() : Date.now();
+}
+
+function findCompletedLines() {
+  const completed = [];
 
   outer: for (let y = board.length - 1; y >= 0; y -= 1) {
     for (let x = 0; x < board[y].length; x += 1) {
@@ -235,17 +268,103 @@ function clearLines() {
       }
     }
 
-    board.splice(y, 1);
-    board.unshift(Array(COLS).fill(EMPTY));
-    linesCleared += 1;
-    y += 1;
+    completed.push(y);
   }
+
+  return completed;
+}
+
+function createLineClearParticles(completedLines) {
+  particles = [];
+
+  // Full rows briefly burst into soft pastel pieces before the board is changed.
+  completedLines.forEach((y) => {
+    for (let x = 0; x < COLS; x += 1) {
+      const color = COLORS[board[y][x]];
+      const centerX = x * CELL + CELL / 2;
+      const centerY = y * CELL + CELL / 2;
+
+      for (let i = 0; i < PARTICLES_PER_CELL; i += 1) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 0.8 + Math.random() * 1.8;
+
+        particles.push({
+          x: centerX,
+          y: centerY,
+          startX: centerX,
+          startY: centerY,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed - 0.7,
+          size: 3 + Math.random() * 4,
+          rotation: Math.random() * Math.PI,
+          spin: (Math.random() - 0.5) * 0.18,
+          color,
+          alpha: 1,
+        });
+      }
+    }
+  });
+}
+
+function startLineClearEffect(completedLines) {
+  isClearingLines = true;
+  clearingLines = completedLines;
+  lineClearStartedAt = now();
+  createLineClearParticles(completedLines);
+}
+
+function updateLineClearEffect(currentTime) {
+  if (!isClearingLines) {
+    return;
+  }
+
+  const progress = Math.min(1, (currentTime - lineClearStartedAt) / LINE_CLEAR_EFFECT_DURATION);
+
+  particles.forEach((particle) => {
+    particle.x = particle.startX + particle.vx * progress * 28;
+    particle.y = particle.startY + particle.vy * progress * 28 + progress * progress * 14;
+    particle.rotation += particle.spin;
+    particle.alpha = 1 - progress;
+  });
+
+  if (progress >= 1) {
+    finishLineClearEffect();
+  }
+}
+
+function finishLineClearEffect() {
+  const linesCleared = clearingLines.length;
+
+  // Remove all completed rows together after the animation so multi-line clears stay in sync.
+  clearingLines
+    .slice()
+    .sort((a, b) => b - a)
+    .forEach((y) => {
+      board.splice(y, 1);
+      board.unshift(Array(COLS).fill(EMPTY));
+    });
 
   if (linesCleared > 0) {
     const lineScores = [0, 100, 300, 500, 800];
     score += lineScores[linesCleared] * level;
     lines += linesCleared;
     updateStats();
+  }
+
+  particles = [];
+  clearingLines = [];
+  isClearingLines = false;
+  spawnNextPiece();
+}
+
+function spawnNextPiece() {
+  piece = nextPiece;
+  nextPiece = createPiece();
+
+  if (collide(board, piece)) {
+    gameOver = true;
+    paused = false;
+    updateState("아쉬워요! 한 번 더 해볼까요?");
   }
 }
 
@@ -274,15 +393,14 @@ function rotatePiece() {
 
 function lockPiece() {
   merge();
-  clearLines();
-  piece = nextPiece;
-  nextPiece = createPiece();
+  const completedLines = findCompletedLines();
 
-  if (collide(board, piece)) {
-    gameOver = true;
-    paused = false;
-    updateState("아쉬워요! 한 번 더 해볼까요?");
+  if (completedLines.length > 0) {
+    startLineClearEffect(completedLines);
+    return;
   }
+
+  spawnNextPiece();
 }
 
 function drop() {
@@ -305,7 +423,7 @@ function move(direction) {
 }
 
 function togglePause() {
-  if (gameOver || !started) {
+  if (gameOver || !started || isClearingLines) {
     return;
   }
 
@@ -317,8 +435,9 @@ function togglePause() {
 function update(time = 0) {
   const deltaTime = time - lastTime;
   lastTime = time;
+  const currentTime = now();
 
-  if (started && !gameOver && !paused) {
+  if (started && !gameOver && !paused && !isClearingLines) {
     dropCounter += deltaTime;
 
     if (dropCounter > getDropInterval()) {
@@ -326,6 +445,7 @@ function update(time = 0) {
     }
   }
 
+  updateLineClearEffect(currentTime);
   draw();
   animationFrameId = requestAnimationFrame(update);
 }
@@ -346,6 +466,10 @@ function startGame() {
   started = false;
   gameOver = false;
   paused = false;
+  isClearingLines = false;
+  clearingLines = [];
+  lineClearStartedAt = 0;
+  particles = [];
   updateStats();
   updateState("");
   update();
@@ -377,7 +501,7 @@ document.addEventListener("keydown", (event) => {
     return;
   }
 
-  if (gameOver || paused || !started) {
+  if (gameOver || paused || !started || isClearingLines) {
     return;
   }
 
