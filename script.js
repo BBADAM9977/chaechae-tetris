@@ -9,11 +9,13 @@ const stateElement = document.getElementById("state");
 const startButton = document.getElementById("start");
 const pauseButton = document.getElementById("pause");
 const restartButton = document.getElementById("restart");
+const touchButtons = document.querySelectorAll(".touch-button");
 
 const COLS = 10;
 const ROWS = 20;
-const CELL = 36;
-const NEXT_CELL = 26;
+const DESKTOP_CELL = 36;
+const DESKTOP_NEXT_CELL = 26;
+const MOBILE_BREAKPOINT = 768;
 const EMPTY = 0;
 const BASE_DROP_INTERVAL = 850;
 const LINE_CLEAR_EFFECT_DURATION = 580;
@@ -76,6 +78,8 @@ let clearingLines;
 let lineClearStartedAt;
 let lineClearMultiplier;
 let particles;
+let cellSize;
+let nextCellSize;
 let animationFrameId;
 
 function createBoard() {
@@ -128,15 +132,15 @@ function drawGrid() {
 
   for (let x = 0; x <= COLS; x += 1) {
     context.beginPath();
-    context.moveTo(x * CELL, 0);
-    context.lineTo(x * CELL, ROWS * CELL);
+    context.moveTo(x * cellSize, 0);
+    context.lineTo(x * cellSize, ROWS * cellSize);
     context.stroke();
   }
 
   for (let y = 0; y <= ROWS; y += 1) {
     context.beginPath();
-    context.moveTo(0, y * CELL);
-    context.lineTo(COLS * CELL, y * CELL);
+    context.moveTo(0, y * cellSize);
+    context.lineTo(COLS * cellSize, y * cellSize);
     context.stroke();
   }
 }
@@ -207,11 +211,11 @@ function drawNextPiece() {
 
   const matrix = nextPiece.matrix;
   const offset = {
-    x: Math.floor((nextCanvas.width / NEXT_CELL - matrix[0].length) / 2),
-    y: Math.floor((nextCanvas.height / NEXT_CELL - matrix.length) / 2),
+    x: Math.floor((nextCanvas.width / nextCellSize - matrix[0].length) / 2),
+    y: Math.floor((nextCanvas.height / nextCellSize - matrix.length) / 2),
   };
 
-  drawMatrix(nextContext, matrix, offset, NEXT_CELL);
+  drawMatrix(nextContext, matrix, offset, nextCellSize);
 }
 
 function drawOverlay(title, subtitle) {
@@ -233,10 +237,10 @@ function draw() {
   context.save();
   applyLineClearBounce();
   drawGrid();
-  drawMatrix(context, board, { x: 0, y: 0 }, CELL);
+  drawMatrix(context, board, { x: 0, y: 0 }, cellSize);
   drawLineClearGlow();
   if (!isClearingLines) {
-    drawMatrix(context, piece.matrix, piece, CELL);
+    drawMatrix(context, piece.matrix, piece, cellSize);
   }
   drawParticles();
   context.restore();
@@ -332,8 +336,8 @@ function createLineClearParticles(completedLines) {
   completedLines.forEach((y) => {
     for (let x = 0; x < COLS; x += 1) {
       const color = COLORS[board[y][x]];
-      const centerX = x * CELL + CELL / 2;
-      const centerY = y * CELL + CELL / 2;
+      const centerX = x * cellSize + cellSize / 2;
+      const centerY = y * cellSize + cellSize / 2;
       const perCell = Math.round(PARTICLES_PER_CELL * lineClearMultiplier);
 
       for (let i = 0; i < perCell && created < particleCount; i += 1) {
@@ -402,17 +406,17 @@ function drawLineClearGlow() {
     context.fillStyle = "#fff8c9";
     context.shadowColor = "rgba(255, 214, 111, 0.72)";
     context.shadowBlur = 22 * lineClearMultiplier;
-    context.fillRect(0, y * CELL, COLS * CELL, CELL);
+    context.fillRect(0, y * cellSize, COLS * cellSize, cellSize);
     context.restore();
 
     context.save();
     context.globalAlpha = Math.max(0, 0.42 * (1 - progress));
-    context.translate((COLS * CELL) / 2, y * CELL + CELL / 2);
+    context.translate((COLS * cellSize) / 2, y * cellSize + cellSize / 2);
     context.scale(popScale, popScale);
-    context.translate(-(COLS * CELL) / 2, -(y * CELL + CELL / 2));
+    context.translate(-(COLS * cellSize) / 2, -(y * cellSize + cellSize / 2));
     for (let x = 0; x < COLS; x += 1) {
       if (board[y][x] !== EMPTY) {
-        drawCell(context, x, y, board[y][x], CELL);
+        drawCell(context, x, y, board[y][x], cellSize);
       }
     }
     context.restore();
@@ -540,6 +544,53 @@ function drop() {
   dropCounter = 0;
 }
 
+function canControlPiece() {
+  return started && !gameOver && !paused && !isClearingLines;
+}
+
+function getViewportHeight() {
+  return window.visualViewport?.height || window.innerHeight || document.documentElement.clientHeight;
+}
+
+function resizeGameForViewport() {
+  const isMobile = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`).matches;
+
+  if (isMobile) {
+    const styles = window.getComputedStyle(document.body);
+    const verticalPadding = parseFloat(styles.paddingTop) + parseFloat(styles.paddingBottom);
+    const topHudHeight = Math.max(
+      document.querySelector(".stats-grid")?.getBoundingClientRect().height || 0,
+      document.querySelector(".next-block")?.getBoundingClientRect().height || 0
+    );
+    const buttonsHeight = document.querySelector(".button-row")?.getBoundingClientRect().height || 0;
+    const touchHeight = document.querySelector(".touch-pad")?.getBoundingClientRect().height || 0;
+    const reservedHeight = topHudHeight + buttonsHeight + touchHeight + verticalPadding + 32;
+    const availableWidth = window.innerWidth - 32;
+    const availableHeight = getViewportHeight() - reservedHeight;
+
+    cellSize = Math.max(
+      14,
+      Math.floor(Math.min(availableWidth / COLS, availableHeight / ROWS))
+    );
+    nextCellSize = Math.max(9, Math.min(13, Math.floor(cellSize * 0.5)));
+  } else {
+    cellSize = DESKTOP_CELL;
+    nextCellSize = DESKTOP_NEXT_CELL;
+  }
+
+  canvas.width = cellSize * COLS;
+  canvas.height = cellSize * ROWS;
+  canvas.style.width = `${canvas.width}px`;
+  canvas.style.height = `${canvas.height}px`;
+
+  nextCanvas.width = nextCellSize * 5;
+  nextCanvas.height = nextCellSize * 5;
+  nextCanvas.style.width = `${nextCanvas.width}px`;
+  nextCanvas.style.height = `${nextCanvas.height}px`;
+
+  draw();
+}
+
 function move(direction) {
   piece.x += direction;
 
@@ -558,12 +609,35 @@ function togglePause() {
   draw();
 }
 
+function runPlayerAction(action) {
+  if (!started && action === "rotate") {
+    beginGame();
+    return;
+  }
+
+  if (!canControlPiece()) {
+    return;
+  }
+
+  if (action === "left") {
+    move(-1);
+  } else if (action === "right") {
+    move(1);
+  } else if (action === "drop") {
+    drop();
+  } else if (action === "rotate") {
+    rotatePiece();
+  }
+
+  draw();
+}
+
 function update(time = 0) {
   const deltaTime = time - lastTime;
   lastTime = time;
   const currentTime = now();
 
-  if (started && !gameOver && !paused && !isClearingLines) {
+  if (canControlPiece()) {
     dropCounter += deltaTime;
 
     if (dropCounter > getDropInterval()) {
@@ -597,6 +671,7 @@ function startGame() {
   lineClearStartedAt = 0;
   lineClearMultiplier = 1;
   particles = [];
+  resizeGameForViewport();
   updateStats();
   updateState("");
   update();
@@ -628,18 +703,18 @@ document.addEventListener("keydown", (event) => {
     return;
   }
 
-  if (gameOver || paused || !started || isClearingLines) {
+  if (!canControlPiece()) {
     return;
   }
 
   if (event.key === "ArrowLeft") {
-    move(-1);
+    runPlayerAction("left");
   } else if (event.key === "ArrowRight") {
-    move(1);
+    runPlayerAction("right");
   } else if (event.key === "ArrowDown") {
-    drop();
+    runPlayerAction("drop");
   } else if (event.key === "ArrowUp" || event.code === "Space") {
-    rotatePiece();
+    runPlayerAction("rotate");
   } else {
     return;
   }
@@ -653,5 +728,16 @@ restartButton.addEventListener("click", () => {
   startGame();
   beginGame();
 });
+
+touchButtons.forEach((button) => {
+  button.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    runPlayerAction(button.dataset.action);
+  });
+});
+
+window.addEventListener("resize", resizeGameForViewport);
+window.addEventListener("orientationchange", resizeGameForViewport);
+window.visualViewport?.addEventListener("resize", resizeGameForViewport);
 
 startGame();
