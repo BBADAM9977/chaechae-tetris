@@ -1,0 +1,19 @@
+{
+  "name": "채채 테트리스",
+  "short_name": "채채 테트리스",
+  "description": "아이폰 홈 화면에서 실행할 수 있는 귀여운 테트리스 게임",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#fff7e8",
+  "theme_color": "#fff1f8",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
